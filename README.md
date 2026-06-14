@@ -18,7 +18,7 @@ elements and books/queries contacts; it never touches command-and-control.
 
 ```
 TLE sources ─► Visibility Engine ─► Scheduler ─► Reconciler / Failover ─► Provider Adapters ─► State + Observability
-   (real)         (real, done)       (next)        (the SRE heart)         (real│simulated seam)
+   (real)         (real, done)      (done)        (done)                   (mock done│live next)   (next)
 ```
 
 The provider-adapter interface is the key seam: it is both the vendor-neutral
@@ -30,10 +30,14 @@ then swapped onto live providers without changing anything upstream.
 
 - [x] **Visibility engine** — SGP4 propagation, pass detection, peak elevation,
       azimuths. Pure deterministic orbital mechanics.
-- [ ] Scheduler — greedy first, then CP-SAT optimization.
-- [ ] Reconciler / failover control loop — desired-vs-actual, auto re-book.
-- [ ] Provider adapters — mock (with fault injection) first, then AWS Ground Station.
-- [ ] Observability — downlink-yield SLO, error budget, per-provider reliability.
+- [x] **Scheduler** — greedy, value-ranked (priority × pass quality − provider
+      cost), no antenna double-booked. CP-SAT optimization to follow.
+- [x] **Reconciler / failover control loop** — books contacts, polls outcomes,
+      re-books failures onto the next-best future opportunity (preferring a
+      different provider), with an explicit yield SLO and error budget.
+- [x] **Provider adapters** — interface + mock with fault injection (failure
+      rates, station outages). Live adapters (AWS Ground Station first) to follow.
+- [ ] Observability — dashboard for the yield SLO, error-budget burn, per-provider reliability.
 
 ## Quickstart
 
@@ -71,11 +75,18 @@ src/orchestrator/
   domain.py       GroundStation, ContactWindow value objects
   tle.py          load elements from file or live from CelesTrak
   visibility.py   the engine: compute_passes, compute_all_opportunities
+  scheduler.py    greedy allocator: schedule_greedy -> SchedulePlan
+  providers.py    ProviderAdapter interface + MockProviderAdapter (fault injection)
+  reconciler.py   the failover control loop: Reconciler -> ReconcileReport
 data/
   sample_tle.txt  bundled ISS element set (offline demo)
   stations.json   ground-station registry (real sites, provider-tagged)
 examples/
-  next_passes.py  compute upcoming ISS passes over the registry
+  next_passes.py    compute upcoming ISS passes over the registry
+  schedule_demo.py  schedule real opportunities + a contention scenario
+  failover_demo.py  schedule, inject a station outage, watch recovery + SLO
 tests/
   test_visibility.py
+  test_scheduler.py
+  test_reconciler.py
 ```
