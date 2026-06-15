@@ -1,18 +1,17 @@
-"""Observability -- compelling ground segment visualization, not another report.
+"""Observability module for ground segment status visualization.
 
-This module is evolving toward the "real" dashboard per DASHBOARD_DESIGN.md:
-mission-control HUD aesthetic, strong visual metaphors (Pass Array beams, Provider
-Constellation, Rescue Vectors), minimal text, hover-rich telemetry, orb for overall
-health. The prototype remains self-contained for offline/export use; the real
-version can relax to richer web tech while providing an export path.
+Provides self-contained HTML dashboards, Prometheus metrics, and report
+persistence for satellite contact scheduling operations.
 
-Core outputs remain useful for code:
-  * `compute_metrics`
-  * `prometheus_metrics`
-  * `render_html` / `render_trend_html`  -- now starting to implement the compelling
-    non-report design (artistic timeline, constellation providers, etc.)
+Core functions:
+  * `compute_metrics` - Extract metrics from a ReconcileReport
+  * `prometheus_metrics` - Prometheus exposition format for Grafana/alerting
+  * `render_html` - Self-contained HTML dashboard (no external dependencies)
+  * `render_trend_html` - Multi-run trend visualization
+  * `save_report` / `load_report` - JSON persistence for reports
 
-The narration helpers (format_*_for_narration) enable LLM layers (Groq etc.) on top.
+The dashboards are self-contained HTML files suitable for offline viewing,
+email attachments, or embedding in other systems.
 """
 
 from __future__ import annotations

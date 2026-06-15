@@ -25,6 +25,9 @@ where = ["src"]
 [tool.setuptools.package-data]
 "*" = ["*.txt", "*.json"]
 
+[project.scripts]
+orchestrator = "orchestrator.cli:main"
+
 [project.urls]
 Homepage = "https://github.com/apsis-labs/space-orchestrator"
 

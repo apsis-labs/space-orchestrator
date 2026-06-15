@@ -20,7 +20,13 @@ python -m pytest tests/test_visibility.py -q
 # Run a specific test
 python -m pytest tests/test_visibility.py::test_passes_are_wellformed_and_clear_the_mask -v
 
-# See tests/ and README for usage examples
+# CLI commands (after install)
+orchestrator passes --hours 12          # List visibility windows
+orchestrator schedule --hours 24        # Compute contact schedule
+orchestrator reconcile --failure-rate 0.2  # Run with mock failures
+orchestrator dashboard --report r.json  # Generate HTML dashboard
+
+# See examples/ for library usage
 ```
 
 The package is now installable via pyproject.toml (no more PYTHONPATH=src required after `pip install -e .`).
@@ -36,7 +42,7 @@ TLE sources -> Visibility Engine -> Scheduler -> Reconciler/Failover -> Provider
     (done)          (done)          (done)          (done)              (mock + AWS live skeleton + stubs)   (prototype + real design doc)
 ```
 
-**Currently implemented:** Full spine (prototype observability; live adapters partial).
+**Currently implemented:** Full spine with CLI, AWS adapter production-ready, KSAT/Leaf Space stubs.
 
 ### Key Design Decisions
 
@@ -48,11 +54,12 @@ TLE sources -> Visibility Engine -> Scheduler -> Reconciler/Failover -> Provider
 
 ### Module Responsibilities
 
+- `orchestrator/cli.py` - Command-line interface (passes, schedule, reconcile, dashboard)
 - `orchestrator/domain.py` - Core types: `GroundStation`, `ContactWindow` (frozen dataclasses)
 - `orchestrator/tle.py` - TLE loading from file or CelesTrak API (cache results; don't hammer the API)
 - `orchestrator/visibility.py` - `compute_passes()` for single sat/station, `compute_all_opportunities()` for Cartesian sweep
 - `orchestrator/scheduler.py` - `schedule_greedy()` and `schedule_cpsat()` -> `SchedulePlan`
-- `orchestrator/providers.py` - `ProviderAdapter` interface, `MockProviderAdapter` (fault injection), `AwsGroundStationAdapter` (live)
+- `orchestrator/providers.py` - `ProviderAdapter` interface, `MockProviderAdapter`, `AwsGroundStationAdapter`, stubs for KSAT/Leaf Space
 - `orchestrator/reconciler.py` - `Reconciler` control loop: books contacts, polls outcomes, re-books failures
 - `orchestrator/observability.py` - Metrics, Prometheus text export, self-contained HTML dashboard
 

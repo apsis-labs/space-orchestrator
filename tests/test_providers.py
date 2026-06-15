@@ -144,7 +144,7 @@ def test_ksat_adapter_stub_raises():
     adapter = KsatAdapter()
     w = window("STATION-1")
 
-    with pytest.raises(NotImplementedError, match="KSAT live adapter not implemented"):
+    with pytest.raises(NotImplementedError, match="extension point"):
         adapter.book(w)
 
     with pytest.raises(NotImplementedError):
@@ -152,6 +152,22 @@ def test_ksat_adapter_stub_raises():
 
     with pytest.raises(NotImplementedError):
         adapter.cancel(Booking("id", "ksat", w))
+
+
+def test_leafspace_adapter_stub_raises():
+    from orchestrator import LeafSpaceAdapter
+
+    adapter = LeafSpaceAdapter()
+    w = window("STATION-1")
+
+    with pytest.raises(NotImplementedError, match="extension point"):
+        adapter.book(w)
+
+    with pytest.raises(NotImplementedError):
+        adapter.poll(Booking("id", "leaf-space", w))
+
+    with pytest.raises(NotImplementedError):
+        adapter.cancel(Booking("id", "leaf-space", w))
 
 
 @patch("orchestrator.providers.boto3")

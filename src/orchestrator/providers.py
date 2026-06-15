@@ -336,27 +336,71 @@ class AwsGroundStationAdapter:
 
 @dataclass
 class KsatAdapter:
-    """Stub / placeholder for a future KSAT live adapter.
+    """Extension point for KSAT ground station integration.
 
-    Follow the same pattern as AwsGroundStationAdapter when implementing:
-    take provider-specific config (API keys, endpoints, station mappings),
-    implement book/poll/cancel against KSAT's API, return the standard
-    Booking / ContactOutcome types.
+    This is a stub adapter that raises NotImplementedError. To use KSAT
+    ground stations in production, you need to implement this adapter
+    with your KSAT API credentials.
 
-    For now it raises NotImplemented so it can be registered in adapter
-    dicts without breaking the reconciler contract.
+    See examples/custom_provider.py for a complete implementation guide.
+
+    For testing without KSAT API access, use MockProviderAdapter:
+        adapters = {"ksat": MockProviderAdapter("ksat", failure_rate=0.1)}
     """
 
     name: str = "ksat"
 
     def book(self, window: ContactWindow) -> Booking:
         raise NotImplementedError(
-            "KSAT live adapter not implemented yet. "
-            "Use MockProviderAdapter for testing or implement using KSAT APIs."
+            "KsatAdapter is an extension point for KSAT API integration. "
+            "See examples/custom_provider.py for implementation guide. "
+            "For testing, use MockProviderAdapter instead."
         )
 
     def poll(self, booking: Booking) -> ContactOutcome:
-        raise NotImplementedError("KSAT live adapter not implemented yet.")
+        raise NotImplementedError(
+            "KsatAdapter.poll() not implemented. "
+            "See examples/custom_provider.py for implementation guide."
+        )
 
     def cancel(self, booking: Booking) -> None:
-        raise NotImplementedError("KSAT live adapter not implemented yet.")
+        raise NotImplementedError(
+            "KsatAdapter.cancel() not implemented. "
+            "See examples/custom_provider.py for implementation guide."
+        )
+
+
+@dataclass
+class LeafSpaceAdapter:
+    """Extension point for Leaf Space ground station integration.
+
+    This is a stub adapter that raises NotImplementedError. To use Leaf Space
+    ground stations in production, you need to implement this adapter
+    with your Leaf Space API credentials.
+
+    See examples/custom_provider.py for a complete implementation guide.
+
+    For testing without Leaf Space API access, use MockProviderAdapter:
+        adapters = {"leaf-space": MockProviderAdapter("leaf-space", failure_rate=0.1)}
+    """
+
+    name: str = "leaf-space"
+
+    def book(self, window: ContactWindow) -> Booking:
+        raise NotImplementedError(
+            "LeafSpaceAdapter is an extension point for Leaf Space API integration. "
+            "See examples/custom_provider.py for implementation guide. "
+            "For testing, use MockProviderAdapter instead."
+        )
+
+    def poll(self, booking: Booking) -> ContactOutcome:
+        raise NotImplementedError(
+            "LeafSpaceAdapter.poll() not implemented. "
+            "See examples/custom_provider.py for implementation guide."
+        )
+
+    def cancel(self, booking: Booking) -> None:
+        raise NotImplementedError(
+            "LeafSpaceAdapter.cancel() not implemented. "
+            "See examples/custom_provider.py for implementation guide."
+        )

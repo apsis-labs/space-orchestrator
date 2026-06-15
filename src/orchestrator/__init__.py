@@ -43,6 +43,7 @@ from .providers import (
     Booking,
     ContactOutcome,
     KsatAdapter,
+    LeafSpaceAdapter,
     MockProviderAdapter,
     ProviderAdapter,
 )
@@ -99,6 +100,7 @@ __all__ = [
     "MockProviderAdapter",
     "AwsGroundStationAdapter",
     "KsatAdapter",
+    "LeafSpaceAdapter",
     "Booking",
     "ContactOutcome",
     "Reconciler",
