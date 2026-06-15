@@ -9,10 +9,14 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from orchestrator import (
+    ConfigurationError,
     GroundStation,
     MockProviderAdapter,
     Reconciler,
+    ValidationError,
     schedule_greedy,
 )
 from orchestrator.domain import ContactWindow
@@ -152,3 +156,44 @@ def test_determinism():
 
     r1, r2 = run_once(), run_once()
     assert (r1.satisfied, r1.recoveries_booked) == (r2.satisfied, r2.recoveries_booked)
+
+
+# ---------------------------------------------------------------------------
+# Validation tests
+# ---------------------------------------------------------------------------
+
+
+def test_reconciler_rejects_empty_adapters():
+    opps = [win("SAT", "GW-A", 0)]
+    with pytest.raises(ConfigurationError, match="at least one adapter"):
+        Reconciler({}, STATIONS, opps)
+
+
+def test_reconciler_rejects_invalid_slo_target():
+    opps = [win("SAT", "GW-A", 0)]
+    adapters = {"prov-a": MockProviderAdapter("prov-a")}
+    with pytest.raises(ConfigurationError, match="slo_target"):
+        Reconciler(adapters, STATIONS, opps, slo_target=1.5)
+    with pytest.raises(ConfigurationError, match="slo_target"):
+        Reconciler(adapters, STATIONS, opps, slo_target=-0.1)
+
+
+def test_reconciler_rejects_negative_max_recovery():
+    opps = [win("SAT", "GW-A", 0)]
+    adapters = {"prov-a": MockProviderAdapter("prov-a")}
+    with pytest.raises(ValidationError, match="max_recovery_attempts"):
+        Reconciler(adapters, STATIONS, opps, max_recovery_attempts=-1)
+
+
+def test_reconciler_rejects_negative_lead_time():
+    opps = [win("SAT", "GW-A", 0)]
+    adapters = {"prov-a": MockProviderAdapter("prov-a")}
+    with pytest.raises(ValidationError, match="booking_lead_time_s"):
+        Reconciler(adapters, STATIONS, opps, booking_lead_time_s=-10)
+
+
+def test_reconciler_rejects_negative_setup_teardown():
+    opps = [win("SAT", "GW-A", 0)]
+    adapters = {"prov-a": MockProviderAdapter("prov-a")}
+    with pytest.raises(ValidationError, match="setup_teardown_s"):
+        Reconciler(adapters, STATIONS, opps, setup_teardown_s=-5)

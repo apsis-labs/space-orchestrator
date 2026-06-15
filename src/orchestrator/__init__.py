@@ -10,6 +10,18 @@ and observability (dashboard + Prometheus).
 """
 
 from .domain import ContactWindow, GroundStation
+from .exceptions import (
+    BookingError,
+    ConfigurationError,
+    OrchestratorError,
+    PollError,
+    ProviderError,
+    ProviderUnavailableError,
+    TLEError,
+    ValidationError,
+    VisibilityError,
+)
+from .logging import configure_logging, get_logger
 from .observability import (
     Metrics,
     ProviderStats,
@@ -53,6 +65,20 @@ from .visibility import (
 )
 
 __all__ = [
+    # Exceptions
+    "OrchestratorError",
+    "ProviderError",
+    "BookingError",
+    "PollError",
+    "ProviderUnavailableError",
+    "ConfigurationError",
+    "ValidationError",
+    "TLEError",
+    "VisibilityError",
+    # Logging
+    "configure_logging",
+    "get_logger",
+    # Domain
     "ContactWindow",
     "GroundStation",
     "load_satellites_from_file",

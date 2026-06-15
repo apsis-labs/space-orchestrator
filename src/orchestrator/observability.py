@@ -22,9 +22,10 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from enum import Enum
 from html import escape
-from typing import Any
+from pathlib import Path
+from typing import Any, cast
 
-from .domain import ContactWindow
+from .domain import ContactWindow, GroundStation
 from .providers import Booking
 from .reconciler import Attempt, AttemptState, ReconcileReport
 from .visibility import satellite_position, visibility_footprint
@@ -85,9 +86,9 @@ def compute_metrics(report: ReconcileReport) -> Metrics:
     )
 
 
-def _unique_stations(attempts):
+def _unique_stations(attempts: list[Attempt]) -> list[str]:
     """Stable unique station list in first-seen order (shared by metrics + svg)."""
-    seen = []
+    seen: list[str] = []
     for a in attempts:
         if a.window.station not in seen:
             seen.append(a.window.station)
@@ -197,7 +198,7 @@ def load_report(path: str) -> ReconcileReport:
     """Load a previously saved ReconcileReport."""
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
-    return _deserialize_value(data, ReconcileReport)
+    return cast(ReconcileReport, _deserialize_value(data, ReconcileReport))
 
 
 def cleanup_old_reports(reports_dir: str | Path, keep_last: int = 50) -> int:
@@ -205,8 +206,7 @@ def cleanup_old_reports(reports_dir: str | Path, keep_last: int = 50) -> int:
 
     Returns the number of files deleted. Call this after save_report in a monitor loop.
     """
-    from pathlib import Path as _Path
-    p = _Path(reports_dir)
+    p = Path(reports_dir)
     if not p.exists():
         return 0
     files = sorted(p.glob("run_*.json"))

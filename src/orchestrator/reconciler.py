@@ -19,6 +19,7 @@ go unrecovered (the error budget), and the report says whether the budget held.
 from __future__ import annotations
 
 import heapq
+import logging
 import math
 from dataclasses import dataclass, field
 from datetime import timedelta
@@ -26,6 +27,9 @@ from enum import Enum
 from typing import Iterable, Mapping, Optional
 
 from .domain import ContactWindow, GroundStation
+
+_log = logging.getLogger("orchestrator.reconciler")
+from .exceptions import ConfigurationError, ValidationError
 from .providers import Booking, ProviderAdapter
 from .scheduler import DEFAULT_SETUP_TEARDOWN_S, SchedulePlan, StationLedger, contact_value
 
@@ -108,6 +112,26 @@ class Reconciler:
         setup_teardown_s: float = DEFAULT_SETUP_TEARDOWN_S,
         resilience_bonus: float = 0.1,
     ):
+        # Validate configuration
+        if not adapters:
+            raise ConfigurationError("at least one adapter is required")
+        if not 0.0 <= slo_target <= 1.0:
+            raise ConfigurationError(f"slo_target must be in [0, 1], got {slo_target}")
+
+        # Validate numeric parameters
+        if max_recovery_attempts < 0:
+            raise ValidationError(
+                f"max_recovery_attempts must be >= 0, got {max_recovery_attempts}"
+            )
+        if booking_lead_time_s < 0:
+            raise ValidationError(
+                f"booking_lead_time_s must be >= 0, got {booking_lead_time_s}"
+            )
+        if setup_teardown_s < 0:
+            raise ValidationError(
+                f"setup_teardown_s must be >= 0, got {setup_teardown_s}"
+            )
+
         self.adapters = dict(adapters)
         self.stations_by_name = {s.name: s for s in stations}
         self.opportunities = list(opportunities)
@@ -157,6 +181,11 @@ class Reconciler:
         return candidates[0][1], candidates[0][2]
 
     def run(self, plan: SchedulePlan) -> ReconcileReport:
+        _log.info(
+            "starting reconciliation",
+            extra={"planned": len(plan.scheduled), "slo_target": self.slo_target},
+        )
+
         # Seed the shared station timeline from the (already conflict-free) plan.
         # Recoveries will consult and extend the same ledger.
         ledger = StationLedger(self.buffer)
@@ -175,6 +204,16 @@ class Reconciler:
         attempts: list[Attempt] = []
         while queue:
             aos, _, origin_id, depth, window, provider, recovers = heapq.heappop(queue)
+            _log.debug(
+                "booking contact",
+                extra={
+                    "origin_id": origin_id,
+                    "attempt": depth,
+                    "satellite": window.satellite,
+                    "station": window.station,
+                    "provider": provider,
+                },
+            )
             booking = self._adapter_for(provider).book(window)
             outcome = self._adapter_for(provider).poll(booking)
 
@@ -187,6 +226,17 @@ class Reconciler:
                 )
                 continue
 
+            _log.warning(
+                "contact failed",
+                extra={
+                    "origin_id": origin_id,
+                    "attempt": depth,
+                    "satellite": window.satellite,
+                    "station": window.station,
+                    "provider": provider,
+                    "detail": outcome.detail,
+                },
+            )
             attempts.append(
                 Attempt(
                     origin_id, depth, window, provider, booking,
@@ -195,11 +245,27 @@ class Reconciler:
             )
 
             if depth >= self.max_recovery_attempts:
+                _log.debug(
+                    "recovery budget exhausted",
+                    extra={"origin_id": origin_id, "max_attempts": self.max_recovery_attempts},
+                )
                 continue  # recovery budget for this demand exhausted
             found = self._find_recovery(window, provider, used, ledger)
             if found is None:
+                _log.debug(
+                    "no recovery available",
+                    extra={"origin_id": origin_id, "satellite": window.satellite},
+                )
                 continue  # nothing left to recover onto
             rec_window, rec_provider = found
+            _log.info(
+                "scheduling recovery",
+                extra={
+                    "origin_id": origin_id,
+                    "recovery_station": rec_window.station,
+                    "recovery_provider": rec_provider,
+                },
+            )
             used.add(rec_window)
             ledger.claim(rec_window)
             heapq.heappush(
@@ -209,9 +275,20 @@ class Reconciler:
             seq += 1
 
         satisfied = len({a.origin_id for a in attempts if a.state is AttemptState.SUCCEEDED})
-        return ReconcileReport(
+        report = ReconcileReport(
             attempts=attempts,
             planned=len(plan.scheduled),
             satisfied=satisfied,
             slo_target=self.slo_target,
         )
+        _log.info(
+            "reconciliation complete",
+            extra={
+                "satisfied": report.satisfied,
+                "planned": report.planned,
+                "yield": report.achieved_yield,
+                "slo_met": report.slo_met,
+                "recoveries": report.recoveries_booked,
+            },
+        )
+        return report

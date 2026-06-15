@@ -20,8 +20,7 @@ python -m pytest tests/test_visibility.py -q
 # Run a specific test
 python -m pytest tests/test_visibility.py::test_passes_are_wellformed_and_clear_the_mask -v
 
-# Core library usage is shown in tests/ and the README.
-# (Demos have been archived to archive/demos/.)
+# See tests/ and README for usage examples
 ```
 
 The package is now installable via pyproject.toml (no more PYTHONPATH=src required after `pip install -e .`).
@@ -38,7 +37,6 @@ TLE sources -> Visibility Engine -> Scheduler -> Reconciler/Failover -> Provider
 ```
 
 **Currently implemented:** Full spine (prototype observability; live adapters partial).
-Demos archived to archive/demos/.
 
 ### Key Design Decisions
 

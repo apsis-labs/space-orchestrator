@@ -18,17 +18,66 @@ station name mapping).
 
 from __future__ import annotations
 
+import functools
+import logging
 import random
+import time
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Callable, Protocol, TypeVar, runtime_checkable
 
 from .domain import ContactWindow
+from .exceptions import BookingError, PollError, ProviderUnavailableError
+
+_log = logging.getLogger("orchestrator.providers")
 
 try:
     import boto3
+    from botocore.exceptions import BotoCoreError, ClientError
 except ImportError:
     boto3 = None  # type: ignore[assignment]
+    BotoCoreError = Exception  # type: ignore[misc,assignment]
+    ClientError = Exception  # type: ignore[misc,assignment]
+
+T = TypeVar("T")
+
+
+def with_retry(
+    max_attempts: int = 3,
+    base_delay_s: float = 1.0,
+    max_delay_s: float = 30.0,
+    backoff_factor: float = 2.0,
+    retryable_exceptions: tuple[type[Exception], ...] = (ProviderUnavailableError,),
+) -> Callable[[Callable[..., T]], Callable[..., T]]:
+    """Decorator for retrying transient provider failures with exponential backoff."""
+
+    def decorator(func: Callable[..., T]) -> Callable[..., T]:
+        @functools.wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> T:
+            delay = base_delay_s
+            last_exception: Exception | None = None
+            for attempt in range(max_attempts):
+                try:
+                    return func(*args, **kwargs)
+                except retryable_exceptions as exc:
+                    last_exception = exc
+                    if attempt < max_attempts - 1:
+                        _log.warning(
+                            "retrying after transient error",
+                            extra={
+                                "attempt": attempt + 1,
+                                "max_attempts": max_attempts,
+                                "delay_s": min(delay, max_delay_s),
+                                "error": str(exc),
+                            },
+                        )
+                        time.sleep(min(delay, max_delay_s))
+                        delay *= backoff_factor
+            raise last_exception  # type: ignore[misc]
+
+        return wrapper
+
+    return decorator
 
 
 @dataclass(frozen=True)
@@ -186,8 +235,17 @@ class AwsGroundStationAdapter:
     def _get_aws_ground_station(self, our_station: str) -> str:
         return self.ground_station_map.get(our_station, our_station)
 
+    @with_retry(max_attempts=3, retryable_exceptions=(ProviderUnavailableError,))
     def book(self, window: ContactWindow) -> Booking:
         gs = self._get_aws_ground_station(window.station)
+        _log.debug(
+            "reserving AWS contact",
+            extra={
+                "satellite": window.satellite,
+                "station": window.station,
+                "aws_ground_station": gs,
+            },
+        )
         try:
             resp = self._client.reserve_contact(
                 satelliteArn=self.satellite_arn,
@@ -197,14 +255,32 @@ class AwsGroundStationAdapter:
                 endTime=window.los,
             )
             contact_id: str = resp["contactId"]
+            _log.info(
+                "AWS contact reserved",
+                extra={"contact_id": contact_id, "station": window.station},
+            )
             return Booking(id=contact_id, provider=self.name, window=window)
-        except Exception as exc:
-            raise RuntimeError(
-                f"AWS Ground Station reserve_contact failed for {window.satellite} "
-                f"on {window.station}: {exc}"
+        except ClientError as exc:
+            error_code = exc.response.get("Error", {}).get("Code", "")
+            _log.warning(
+                "AWS API error",
+                extra={"error_code": error_code, "station": window.station},
+            )
+            if error_code in ("ServiceUnavailable", "Throttling", "RequestLimitExceeded"):
+                raise ProviderUnavailableError(
+                    f"AWS transient error: {error_code}"
+                ) from exc
+            raise BookingError(
+                self.name,
+                f"reserve_contact failed: {exc}",
+                cause=exc,
             ) from exc
+        except BotoCoreError as exc:
+            _log.warning("AWS connection error", extra={"error": str(exc)})
+            raise ProviderUnavailableError(f"AWS connection error: {exc}") from exc
 
     def poll(self, booking: Booking) -> ContactOutcome:
+        _log.debug("polling AWS contact", extra={"contact_id": booking.id})
         try:
             resp = self._client.describe_contact(contactId=booking.id)
             status: str = resp.get("contactStatus", "UNKNOWN")
@@ -213,6 +289,7 @@ class AwsGroundStationAdapter:
 
             # Terminal success (antenna side)
             if status in {"COMPLETED", "PASSED"}:
+                _log.debug("contact succeeded", extra={"contact_id": booking.id})
                 return ContactOutcome(True, detail)
             # Terminal failure
             if status in {
@@ -223,18 +300,38 @@ class AwsGroundStationAdapter:
                 "FAILED_TO_SCHEDULE",
                 "REJECTED",
             }:
+                _log.warning(
+                    "contact failed",
+                    extra={"contact_id": booking.id, "status": status, "error": error},
+                )
                 return ContactOutcome(False, detail)
             # In progress / still actionable
             return ContactOutcome(False, f"status={status}")
-        except Exception as exc:
+        except ClientError as exc:
+            error_code = exc.response.get("Error", {}).get("Code", "")
+            _log.warning(
+                "poll API error",
+                extra={"contact_id": booking.id, "error_code": error_code},
+            )
+            return ContactOutcome(False, f"describe_contact error: {error_code}")
+        except BotoCoreError as exc:
+            _log.warning(
+                "poll connection error",
+                extra={"contact_id": booking.id, "error": str(exc)},
+            )
             return ContactOutcome(False, f"describe_contact error: {exc}")
 
     def cancel(self, booking: Booking) -> None:
+        _log.debug("cancelling AWS contact", extra={"contact_id": booking.id})
         try:
             self._client.cancel_contact(contactId=booking.id)
-        except Exception:
+            _log.info("contact cancelled", extra={"contact_id": booking.id})
+        except (ClientError, BotoCoreError) as exc:
             # Best effort; the reconciler treats this as non-fatal
-            pass
+            _log.warning(
+                "cancel failed (non-fatal)",
+                extra={"contact_id": booking.id, "error": str(exc)},
+            )
 
 
 @dataclass
