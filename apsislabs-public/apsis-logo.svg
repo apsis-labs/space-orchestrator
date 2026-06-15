@@ -1,0 +1,24 @@
+<svg width="392" height="96" viewBox="0 0 392 96" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      .orbit{fill:none;stroke:#3B6BFF;stroke-width:2.4}
+      .body{fill:#9FB0CC}
+      .apsis{fill:#22D3EE}
+      .wm{font-family:system-ui,-apple-system,"Segoe UI",Inter,sans-serif;font-weight:760;font-size:34px;letter-spacing:-.02em}
+      .wm-a{fill:#0D1626}
+      .wm-b{fill:#3B6BFF}
+      .tag{font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:10px;letter-spacing:.34em;fill:#5A6B86}
+    </style>
+  </defs>
+
+  <!-- mark: an orbit with the apsis (extreme point) marked -->
+  <g transform="translate(48 48) rotate(-22)">
+    <ellipse class="orbit" cx="0" cy="0" rx="34" ry="16.5"/>
+    <circle class="body" cx="-12" cy="0" r="4.4"/>
+    <circle class="apsis" cx="34" cy="0" r="6"/>
+  </g>
+
+  <!-- wordmark -->
+  <text x="104" y="52" class="wm"><tspan class="wm-a">apsis</tspan><tspan class="wm-b">labs</tspan></text>
+  <text x="106" y="70" class="tag">GROUND SEGMENT RELIABILITY</text>
+</svg>

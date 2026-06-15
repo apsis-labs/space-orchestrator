@@ -5,23 +5,27 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Build & Test Commands
 
 ```bash
-# Install dependencies
-pip install -r requirements.txt
+# Install (editable, with optional live/optimization deps)
+pip install -e ".[aws,optimization,test]"
+
+# Or minimal
+pip install -e .
 
 # Run all tests
-PYTHONPATH=src python3 -m pytest tests/ -q
+python -m pytest tests/ -q
 
 # Run a single test file
-PYTHONPATH=src python3 -m pytest tests/test_visibility.py -q
+python -m pytest tests/test_visibility.py -q
 
 # Run a specific test
-PYTHONPATH=src python3 -m pytest tests/test_visibility.py::test_passes_are_wellformed_and_clear_the_mask -v
+python -m pytest tests/test_visibility.py::test_passes_are_wellformed_and_clear_the_mask -v
 
-# Run the example (offline, uses bundled TLE)
-PYTHONPATH=src python3 examples/next_passes.py
+# Core library usage is shown in tests/ and the README.
+# (Demos have been archived to archive/demos/.)
 ```
 
-Note: `PYTHONPATH=src` is required because there's no setup.py/pyproject.toml install.
+The package is now installable via pyproject.toml (no more PYTHONPATH=src required after `pip install -e .`).
+Optional extras: aws (boto3 for live adapters), optimization (ortools for CP-SAT scheduler).
 
 ## Architecture
 
@@ -29,11 +33,12 @@ This is a vendor-neutral contact scheduler for satellite fleets. The system book
 
 **The Spine (build order):**
 ```
-TLE sources -> Visibility Engine -> Scheduler -> Reconciler/Failover -> Provider Adapters
-                    (done)          (planned)      (planned)              (planned)
+TLE sources -> Visibility Engine -> Scheduler -> Reconciler/Failover -> Provider Adapters -> Observability
+    (done)          (done)          (done)          (done)              (mock + AWS live skeleton + stubs)   (prototype + real design doc)
 ```
 
-**Currently implemented:** Visibility Engine only.
+**Currently implemented:** Full spine (prototype observability; live adapters partial).
+Demos archived to archive/demos/.
 
 ### Key Design Decisions
 
@@ -45,11 +50,13 @@ TLE sources -> Visibility Engine -> Scheduler -> Reconciler/Failover -> Provider
 
 ### Module Responsibilities
 
-- `orchestrator/domain.py` - Core types: `GroundStation` (antenna location + elevation mask), `ContactWindow` (AOS/TCA/LOS times, peak elevation, azimuths)
+- `orchestrator/domain.py` - Core types: `GroundStation`, `ContactWindow` (frozen dataclasses)
 - `orchestrator/tle.py` - TLE loading from file or CelesTrak API (cache results; don't hammer the API)
 - `orchestrator/visibility.py` - `compute_passes()` for single sat/station, `compute_all_opportunities()` for Cartesian sweep
-- `data/stations.json` - Ground station registry with provider tags
-- `data/sample_tle.txt` - Bundled ISS elements for offline testing
+- `orchestrator/scheduler.py` - `schedule_greedy()` and `schedule_cpsat()` -> `SchedulePlan`
+- `orchestrator/providers.py` - `ProviderAdapter` interface, `MockProviderAdapter` (fault injection), `AwsGroundStationAdapter` (live)
+- `orchestrator/reconciler.py` - `Reconciler` control loop: books contacts, polls outcomes, re-books failures
+- `orchestrator/observability.py` - Metrics, Prometheus text export, self-contained HTML dashboard
 
 ### Terminology
 

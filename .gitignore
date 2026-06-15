@@ -4,3 +4,16 @@ __pycache__/
 *.egg-info/
 .venv/
 venv/
+.*_venv*/
+
+# macOS
+.DS_Store
+
+# IDE
+*.code-workspace
+.idea/
+.vscode/
+
+# Build
+dist/
+build/

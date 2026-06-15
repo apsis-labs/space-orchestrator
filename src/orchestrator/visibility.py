@@ -4,9 +4,12 @@ Given a satellite (as a Skyfield EarthSatellite) and a ground station, compute
 the windows during which the satellite clears the station's elevation mask.
 These ContactWindows are the raw "opportunities" the scheduler later allocates.
 
-This is pure, deterministic orbital mechanics: SGP4 propagation via Skyfield's
-`find_events`, which returns rise (0), culminate (1), and set (2) events. We
-group those into passes and enrich each with peak elevation and azimuths.
+Also provides continuous position sampling (`satellite_position` / `satellite_positions`)
+for live visualizations (2D maps with ground tracks + visibility circles, 3D
+Cesium scenes, etc.). The same SGP4 propagation powers both discrete passes and
+continuous positions.
+
+This is pure, deterministic orbital mechanics.
 """
 
 from __future__ import annotations
@@ -92,3 +95,74 @@ def compute_all_opportunities(
             opportunities.extend(compute_passes(sat, station, start, end))
     opportunities.sort(key=lambda w: w.aos)
     return opportunities
+
+
+def satellite_position(
+    satellite: EarthSatellite,
+    time: datetime,
+) -> dict:
+    """Return the geodetic (lat, lon, elevation) position of the satellite at a specific UTC time.
+
+    This is the continuous-sampling counterpart to the discrete pass computation.
+    Essential for live visualizations:
+    - 2D world maps: sub-satellite point + ground track
+    - 3D (CesiumJS etc.): real-time orbiting positions + contact links
+    - Footprint circles: combine with station elevation masks to show current visibility
+
+    Returns a dict with:
+        latitude_deg, longitude_deg, elevation_m, time
+    """
+    t = _TS.from_datetime(time)
+    subpoint = wgs84.subpoint(satellite.at(t))
+    return {
+        "latitude_deg": subpoint.latitude.degrees,
+        "longitude_deg": subpoint.longitude.degrees,
+        "elevation_m": subpoint.elevation.m,
+        "time": time,
+    }
+
+
+def satellite_positions(
+    satellite: EarthSatellite,
+    times: Iterable[datetime],
+) -> list[dict]:
+    """Batch version of satellite_position for efficiency.
+
+    Use this to generate ground tracks or sample positions for 2D/3D renderers
+    without paying repeated timescale overhead.
+    """
+    return [satellite_position(satellite, t) for t in times]
+
+
+def visibility_footprint(
+    station: GroundStation,
+    satellite: EarthSatellite,
+    time: datetime,
+    mask_deg: float | None = None,
+) -> dict:
+    """Compute the instantaneous visibility footprint for a station-satellite pair.
+
+    Returns the sub-satellite point plus a rough great-circle radius (in degrees)
+    for the visibility circle at the given mask. Useful for live 2D maps.
+
+    This is approximate (assumes spherical Earth); good enough for visualization.
+    """
+    pos = satellite_position(satellite, time)
+    mask = mask_deg if mask_deg is not None else station.min_elevation_deg
+
+    # Rough Earth-central angle for visibility at given elevation mask
+    # Using simple geometric approximation (good for viz, not precision navigation)
+    import math
+    earth_radius = 6371.0  # km
+    sat_alt = pos["elevation_m"] / 1000.0  # km
+    # Angle from station to horizon to sat
+    gamma = math.acos( (earth_radius / (earth_radius + sat_alt)) * math.cos(math.radians(mask)) )
+    earth_angle_deg = math.degrees(gamma) - mask  # very rough; sufficient for map circles
+
+    return {
+        "sub_latitude_deg": pos["latitude_deg"],
+        "sub_longitude_deg": pos["longitude_deg"],
+        "visibility_radius_deg": max(0.0, earth_angle_deg),
+        "mask_deg": mask,
+        "time": time,
+    }

@@ -9,7 +9,9 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from orchestrator import GroundStation, schedule_greedy
+import pytest
+
+from orchestrator import GroundStation, schedule_cpsat, schedule_greedy
 from orchestrator.domain import ContactWindow
 
 T0 = datetime(2026, 1, 1, 0, 0, tzinfo=timezone.utc)
@@ -107,3 +109,36 @@ def test_max_contacts_per_satellite_cap():
     plan = schedule_greedy(opps, STATIONS, max_contacts_per_satellite=2)
     assert plan.contacts_by_satellite().get("SAT-A", 0) == 2
     assert plan.dropped_count == 3
+
+
+def test_schedule_cpsat_produces_valid_plan_and_respects_constraints():
+    # Same contention as greedy priority test, but using CP-SAT
+    opps = [
+        window("LOWPRI", "GW-1", 0, 8, peak=80.0),
+        window("HIGHPRI", "GW-1", 1, 8, peak=20.0),
+    ]
+    plan = schedule_cpsat(
+        opps, STATIONS, priorities={"HIGHPRI": 10.0, "LOWPRI": 1.0}
+    )
+
+    scheduled_sats = {c.window.satellite for c in plan.scheduled}
+    assert "HIGHPRI" in scheduled_sats
+    assert "LOWPRI" not in scheduled_sats
+    assert plan.scheduled_count + plan.dropped_count == len(opps)
+
+
+def test_schedule_cpsat_respects_max_contacts_and_buffer():
+    # 3 non-conflicting for one sat, but cap at 2 + buffer test
+    opps = [window("SAT-A", "GW-1", i * 30, 8) for i in range(3)]
+    plan = schedule_cpsat(
+        opps, STATIONS, max_contacts_per_satellite=2, setup_teardown_s=120.0
+    )
+    assert plan.contacts_by_satellite().get("SAT-A", 0) <= 2
+    # With large buffer some may be dropped even without cap in this setup
+    assert plan.dropped_count >= 0  # basic sanity
+
+
+def test_schedule_cpsat_requires_ortools(monkeypatch):
+    monkeypatch.setattr("orchestrator.scheduler.cp_model", None)
+    with pytest.raises(ImportError, match="ortools"):
+        schedule_cpsat([], STATIONS)

@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "space-orchestrator"
+version = "0.2.0"
+description = "A vendor-neutral contact scheduler for satellite fleets. Visibility, greedy + CP-SAT scheduling, reconciler/failover, provider adapters (mock + AWS), and observability."
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name = "space-orchestrator contributors"}]
+dependencies = [
+    "skyfield>=1.50",
+]
+
+[project.optional-dependencies]
+aws = ["boto3>=1.34"]
+optimization = ["ortools>=9.8"]
+test = ["pytest>=7", "moto>=5"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"*" = ["*.txt", "*.json"]
+
+[project.urls]
+Homepage = "https://github.com/example/space-orchestrator"

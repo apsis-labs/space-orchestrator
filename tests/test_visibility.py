@@ -12,7 +12,14 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from orchestrator import GroundStation, compute_passes, load_satellites_from_file
+from orchestrator import (
+    GroundStation,
+    compute_passes,
+    load_satellites_from_file,
+    satellite_position,
+    satellite_positions,
+    visibility_footprint,
+)
 
 DATA = os.path.join(os.path.dirname(__file__), "..", "data")
 EPOCH = datetime(2025, 11, 4, 12, 0, tzinfo=timezone.utc)
@@ -53,3 +60,34 @@ def test_inclination_limits_high_latitude_visibility(iss):
     assert compute_passes(iss, svalbard, *window) == []
     high = [w for w in compute_passes(iss, punta, *window) if w.peak_elevation_deg > 50.0]
     assert high, "a station under the orbit's edge should get near-overhead passes"
+
+
+def test_satellite_position_and_batch(iss):
+    # Continuous sampling for live maps / 3D
+    t = EPOCH
+    pos = satellite_position(iss, t)
+    assert "latitude_deg" in pos
+    assert "longitude_deg" in pos
+    assert abs(pos["latitude_deg"]) <= 90.0
+    assert abs(pos["longitude_deg"]) <= 180.0
+
+    # Batch should be efficient and consistent
+    times = [EPOCH + timedelta(minutes=i) for i in range(5)]
+    batch = satellite_positions(iss, times)
+    assert len(batch) == 5
+    for i, p in enumerate(batch):
+        assert p["time"] == times[i]
+        # Spot-check one against single call
+        if i == 2:
+            single = satellite_position(iss, times[i])
+            assert abs(single["latitude_deg"] - p["latitude_deg"]) < 0.001
+
+
+def test_visibility_footprint(iss):
+    station = GroundStation("BAYAREA-1", 37.6624, -121.8747, 110.0, min_elevation_deg=10.0)
+    t = EPOCH
+    fp = visibility_footprint(station, iss, t)
+    assert "sub_latitude_deg" in fp
+    assert "visibility_radius_deg" in fp
+    assert fp["visibility_radius_deg"] > 0
+    assert fp["mask_deg"] == 10.0

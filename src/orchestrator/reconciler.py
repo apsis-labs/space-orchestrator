@@ -18,15 +18,16 @@ go unrecovered (the error budget), and the report says whether the budget held.
 
 from __future__ import annotations
 
+import heapq
 import math
 from dataclasses import dataclass, field
 from datetime import timedelta
 from enum import Enum
-from typing import Mapping, Optional
+from typing import Iterable, Mapping, Optional
 
 from .domain import ContactWindow, GroundStation
 from .providers import Booking, ProviderAdapter
-from .scheduler import DEFAULT_SETUP_TEARDOWN_S, SchedulePlan, contact_value
+from .scheduler import DEFAULT_SETUP_TEARDOWN_S, SchedulePlan, StationLedger, contact_value
 
 
 class AttemptState(str, Enum):
@@ -97,8 +98,8 @@ class Reconciler:
     def __init__(
         self,
         adapters: Mapping[str, ProviderAdapter],
-        stations,
-        opportunities,
+        stations: Iterable[GroundStation],
+        opportunities: Iterable[ContactWindow],
         priorities: Optional[Mapping[str, float]] = None,
         provider_costs: Optional[Mapping[str, float]] = None,
         slo_target: float = 0.95,
@@ -128,23 +129,25 @@ class Reconciler:
         except KeyError as exc:
             raise KeyError(f"no adapter registered for provider {provider!r}") from exc
 
-    def _find_recovery(self, failed: ContactWindow, failed_provider, used, booked):
-        """Best future window for the same satellite on a free antenna."""
+    def _find_recovery(
+        self, failed: ContactWindow, failed_provider: str, used: set[ContactWindow], ledger: StationLedger
+    ) -> tuple[ContactWindow, str] | None:
+        """Best future window for the same satellite on a free antenna.
+
+        Uses the shared StationLedger so recovery choices respect the same
+        non-overlap + buffer rule as the original schedule.
+        """
         earliest = failed.los + self.lead
         candidates = []
         for w in self.opportunities:
             if w.satellite != failed.satellite or w in used or w.aos < earliest:
                 continue
-            intervals = booked.get(w.station, [])
-            free = all(
-                (w.los + self.buffer <= s) or (w.aos - self.buffer >= e)
-                for (s, e) in intervals
-            )
-            if not free:
+            if not ledger.is_free(w):
                 continue
             provider = self._provider_of(w.station)
-            value = contact_value(w, self.priorities.get(w.satellite, 1.0),
-                                  self.provider_costs.get(provider, 0.0))
+            value = contact_value(
+                w, self.priorities.get(w.satellite, 1.0), self.provider_costs.get(provider, 0.0)
+            )
             if provider != failed_provider:
                 value += self.resilience_bonus  # prefer switching away from a bad provider
             candidates.append((value, w, provider))
@@ -154,16 +157,15 @@ class Reconciler:
         return candidates[0][1], candidates[0][2]
 
     def run(self, plan: SchedulePlan) -> ReconcileReport:
-        # Seed live booking state from the conflict-free plan.
-        booked: dict[str, list[tuple]] = {}
+        # Seed the shared station timeline from the (already conflict-free) plan.
+        # Recoveries will consult and extend the same ledger.
+        ledger = StationLedger(self.buffer)
         used: set[ContactWindow] = set()
         for c in plan.scheduled:
-            booked.setdefault(c.window.station, []).append((c.window.aos, c.window.los))
+            ledger.claim(c.window)
             used.add(c.window)
 
         # A min-queue of executions ordered by AOS; recoveries get pushed in later.
-        import heapq
-
         seq = 0
         queue: list[tuple] = []  # (aos, seq, origin_id, attempt, window, provider, recovers)
         for origin_id, c in enumerate(plan.scheduled):
@@ -177,23 +179,33 @@ class Reconciler:
             outcome = self._adapter_for(provider).poll(booking)
 
             if outcome.succeeded:
-                attempts.append(Attempt(origin_id, depth, window, provider, booking,
-                                        AttemptState.SUCCEEDED, outcome.detail, recovers))
+                attempts.append(
+                    Attempt(
+                        origin_id, depth, window, provider, booking,
+                        AttemptState.SUCCEEDED, outcome.detail, recovers
+                    )
+                )
                 continue
 
-            attempts.append(Attempt(origin_id, depth, window, provider, booking,
-                                    AttemptState.FAILED, outcome.detail, recovers))
+            attempts.append(
+                Attempt(
+                    origin_id, depth, window, provider, booking,
+                    AttemptState.FAILED, outcome.detail, recovers
+                )
+            )
 
             if depth >= self.max_recovery_attempts:
                 continue  # recovery budget for this demand exhausted
-            found = self._find_recovery(window, provider, used, booked)
+            found = self._find_recovery(window, provider, used, ledger)
             if found is None:
                 continue  # nothing left to recover onto
             rec_window, rec_provider = found
             used.add(rec_window)
-            booked.setdefault(rec_window.station, []).append((rec_window.aos, rec_window.los))
-            heapq.heappush(queue, (rec_window.aos, seq, origin_id, depth + 1,
-                                   rec_window, rec_provider, window))
+            ledger.claim(rec_window)
+            heapq.heappush(
+                queue,
+                (rec_window.aos, seq, origin_id, depth + 1, rec_window, rec_provider, window),
+            )
             seq += 1
 
         satisfied = len({a.origin_id for a in attempts if a.state is AttemptState.SUCCEEDED})
